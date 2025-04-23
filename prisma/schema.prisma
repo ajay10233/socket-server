@@ -1,0 +1,449 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+model PaymentHistory {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  senderId    String   @db.ObjectId
+  receiverId  String   @db.ObjectId
+  amount      Float
+  status      String   @default("PENDING") // PENDING, SUCCESS, FAILED
+  createdAt   DateTime @default(now())
+
+  sender      User @relation("UserSentPayments", fields: [senderId], references: [id])
+  receiver    User @relation("UserReceivedPayments", fields: [receiverId], references: [id])
+
+  @@map("payment_history")
+}
+
+model Plan {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  name           String   @unique
+  price          Float    @default(0)
+  description    String?
+  features       String[] 
+  durationInDays Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  users          User[]   @relation("PlanUsers")
+  image          String?
+  maxUploadSizeMB Int      @default(1)
+}
+
+model User {
+  id                String  @id @default(auto()) @map("_id") @db.ObjectId
+  firstName         String?
+  lastName          String?
+  email             String  @unique
+  username          String? @unique
+  phone             String  @unique
+  password          String
+  role              String   @default("USER")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Common fields for both User & Institution & shop owner
+  age              String?
+  gender           String?  
+  // address          String?
+  houseNumber      String?  // House/Flat Number
+  street           String?  // Street Address
+  buildingName     String?  // Apartment/Building Name
+  landmark         String?  // Nearby Landmark
+  city             String?  // City
+  state            String?  // State
+  country          String?  // Country
+  zipCode          String?  // Postal Code
+  mobileNumber     String?
+  profilePhoto     String?
+
+  // Fields specific to Institution
+  firmName         String?  
+  shopAddress      String?  
+  contactEmail     String?
+  paymentDetails   String?
+  description      String?
+  hashtags         String[]  
+  photos           String[] @default([]) 
+  shopOpenTime     String?  
+  shopCloseTime    String?  
+  shopOpenDays     String[] 
+  upi_id           String?
+  latitude         Float?  
+  longitude        Float?  
+  scanner_image    String?
+
+  // Relationships
+  sentMessages     Message[] @relation("UserSentMessages")
+  receivedMessages Message[] @relation("UserReceivedMessages")
+
+  sentPayments     PaymentHistory[] @relation("UserSentPayments")
+  receivedPayments PaymentHistory[] @relation("UserReceivedPayments")
+
+  conversationsAsUser1 Conversation[] @relation("User1Conversations")
+  conversationsAsUser2 Conversation[] @relation("User2Conversations")
+
+  favoritedInstitutions FavoriteInstitution[] @relation("UserFavorites")  
+  favoritedByUsers      FavoriteInstitution[] @relation("InstitutionFavorites") 
+  // New Relations for Token Management
+  tokensAsUser         Token[] @relation("UserTokens")
+  tokensAsInstitution  Token[] @relation("InstitutionTokens")
+
+  // Bill Relations
+  billsAsUser       Bill[] @relation("User")
+  billsAsInstitution Bill[] @relation("Institution")
+  billFormatForUser  BillFormat[] @relation("BillFormatForUser")
+  userResponse       UserResponse[] @relation("UserResponse")
+  resetTokens PasswordResetToken[]
+  reviewsGiven      Review[] @relation("UserReviewGiven")
+  reviewsReceived   Review[] @relation("UserReviewReceived")
+  subscriptionPlan     Plan?    @relation("PlanUsers", fields: [subscriptionPlanId], references: [id])
+  subscriptionPlanId   String?  @db.ObjectId
+  planActivatedAt      DateTime?
+  planExpiresAt        DateTime?
+  paidProfilesGiven    PaidProfile[] @relation("PaidProfilePayer")
+  abusiveCommentsReported AbusiveComment[] @relation("UserReportedAbuse")
+  favoriteBills FavoriteBills[]
+
+  pastAddresses PastAddress[]
+  
+  @@map("users")
+}
+
+model PastAddress {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @db.ObjectId
+
+  houseNumber   String?
+  street        String?
+  buildingName  String?
+  landmark      String?
+  city          String?
+  state         String?
+  country       String?
+  zipCode       String?
+  latitude      Float?
+  longitude     Float?
+
+  movedOutAt    DateTime  // When the institution moved from this address
+
+  createdAt     DateTime  @default(now())
+}
+
+//! Need to add cron jobs to automatically downgrade the plans
+// const expiredUsers = await prisma.user.findMany({
+//   where: {
+//     planExpiresAt: {
+//       lt: new Date(),
+//     },
+//     subscriptionPlan: {
+//       not: 'BASIC',
+//     },
+//   },
+// });
+
+// for (const user of expiredUsers) {
+//   await prisma.user.update({
+//     where: { id: user.id },
+//     data: {
+//       subscriptionPlan: 'BASIC',
+//       planActivatedAt: null,
+//       planExpiresAt: null,
+//     },
+//   });
+// }
+
+
+model PasswordResetToken {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  token     String   @unique
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Message {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  senderId      String   @db.ObjectId
+  senderType    SenderType
+  receiverId    String   @db.ObjectId
+  content       String
+  timestamp     DateTime @default(now())
+
+  conversationId String  @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  senderUser     User? @relation("UserSentMessages", fields: [senderId], references: [id])
+  receiverUser   User? @relation("UserReceivedMessages", fields: [receiverId], references: [id])
+
+  @@map("messages")
+}
+
+
+model Conversation {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  user1Id             String   @db.ObjectId
+  user2Id             String   @db.ObjectId
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user1               User?     @relation("User1Conversations", fields: [user1Id], references: [id])
+  user2               User?     @relation("User2Conversations", fields: [user2Id], references: [id])
+  messages            Message[] 
+  accepted            Boolean   @default(false)
+  hidden            Boolean   @default(false)
+
+  lastMessageId       String?  @db.ObjectId
+  lastMessageContent  String?  
+  lastMessageTimestamp DateTime?  
+  lastMessageSenderId String?  @db.ObjectId
+
+  @@unique([user1Id, user2Id])
+  @@map("conversations")
+}
+
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  CONFLICT
+}
+
+enum SenderType {
+  USER
+  INSTITUTION
+  SHOP_OWNER
+}
+
+
+model FavoriteInstitution {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId  // User who favorited an institution
+  institutionId String   @db.ObjectId  // Institution being favorited
+  createdAt     DateTime @default(now())
+
+  user          User? @relation("UserFavorites", fields: [userId], references: [id], onDelete: Cascade)
+  institution   User? @relation("InstitutionFavorites", fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, institutionId]) // Prevent duplicate favorites
+  @@map("favorite_institutions")
+}
+
+model Session {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  token     String   @unique
+  device    String?
+  ip        String?
+  createdAt DateTime @default(now())
+}
+
+model Token {
+  id            String  @id @default(auto()) @map("_id") @db.ObjectId
+  tokenNumber   Int
+  userId        String?  @db.ObjectId
+  institutionId String?  @db.ObjectId
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime?
+  completed     Boolean @default(false) // Add the `completed` field here
+  processing    Boolean  @default(false)
+  user          User?  @relation("UserTokens", fields: [userId], references: [id], onDelete: Cascade)
+  institution   User?  @relation("InstitutionTokens", fields: [institutionId], references: [id], onDelete: Cascade)
+
+  name          String? 
+  phoneNumber   String?
+
+
+  billrelation  Bill[] @relation("TokenInBill")
+  @@map("tokens")
+}
+
+model BillFormat{
+  id                      String  @id @default(auto()) @map("_id") @db.ObjectId
+  institutionId           String @db.ObjectId @unique
+
+  // * mandatory fields from institution relation to user, optional fields below
+  gstNumber               String? @unique 
+  taxType                 String?  
+  taxPercentage           String?  // Tax percentage
+  proprietorSign          String?  // Image file path (Max 150KB)
+  extraText               String? 
+  institutionRelation     User @relation("BillFormatForUser",fields: [institutionId],references: [id],onDelete: Cascade)
+}
+
+model UserResponse {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  content     String       
+  userId      String? @db.ObjectId
+  name        String?
+  email       String?
+  type        FeedbackType @default(FEEDBACK)
+  user        User?         @relation("UserResponse", fields: [userId], references: [id])
+}
+
+enum FeedbackType {
+  FEEDBACK
+  COMPLAINT
+}
+
+model Bill {
+  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  expiresAt      DateTime
+
+  userId         String?    @db.ObjectId
+  institutionId  String?    @db.ObjectId
+  tokenId        String?    @db.ObjectId
+
+  name           String?
+  phoneNumber    String?
+  totalAmount    Float?     // Total cost of the bill
+  paymentStatus  String?    // e.g. "PAID", "PENDING"
+  remarks        String?    // Additional notes if any
+  invoiceNumber  String?
+  otherCharges   Float?
+
+  user           User?      @relation("User", fields: [userId], references: [id], onDelete: Cascade)
+  institution    User?      @relation("Institution", fields: [institutionId], references: [id], onDelete: Cascade)
+  tokenNumber    Token?     @relation("TokenInBill", fields: [tokenId], references: [id], onDelete: Cascade)
+
+  fileUrl        String?
+  fileType       String?
+  type          BillType?   @default(BILL)
+  items         BillItem[] @relation("BillToBillItem")
+  shortBill  ShortBill?
+  favoritedByUsers FavoriteBills[]
+
+  @@map("bills")
+}
+
+enum BillType {
+  BILL
+  REPORT
+}
+
+model BillItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  billId    String   @db.ObjectId
+  name      String   
+  price     Float    
+  quantity  Int?     @default(1)    
+  total     Float?    
+
+  bill      Bill     @relation("BillToBillItem", fields: [billId], references: [id], onDelete: Cascade)
+
+  @@map("bill_items")
+}
+
+
+model ShortBill {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  billId     String   @unique @db.ObjectId // <-- Add @unique here
+  summary    String
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  bill       Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@map("short_bills")
+}
+
+
+model Review {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  rating         Int
+  comment        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userId         String   @db.ObjectId
+  institutionId  String   @db.ObjectId
+
+  user           User     @relation("UserReviewGiven", fields: [userId], references: [id])
+  institution    User     @relation("UserReviewReceived", fields: [institutionId], references: [id])
+  abuseReports AbusiveComment[] @relation("ReviewAbuseReports")
+  // @@unique([userId, institutionId]) // Optional: prevent duplicate reviews per user
+  @@map("reviews")
+}
+
+
+model Coupon {
+  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+  name                  String?
+  discountPercentage    Float?
+  startDate             DateTime?
+  durationInDays        Int?
+  expiresAt             DateTime
+  createdAt             DateTime? @default(now())
+  updatedAt             DateTime? @updatedAt
+  purpose               Purpose?
+  limit                 Int?
+  @@map("coupons")
+}
+
+enum Purpose {
+  PLAN
+  PROMOTION
+}
+
+
+model PaidProfile {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String   @db.ObjectId
+  amountPaid      Float
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime?
+  notes           String?
+  user            User     @relation("PaidProfilePayer", fields: [userId], references: [id])
+  image           String?
+  range           Int?
+
+  @@map("paid_profiles")
+}
+
+
+model AbusiveComment {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  reviewId   String   @db.ObjectId
+  reason     String
+  reportedBy String   @db.ObjectId
+  // status     String   @default("PENDING") // PENDING | ACCEPTED | DENIED
+  createdAt  DateTime @default(now())
+
+  review Review @relation("ReviewAbuseReports", fields: [reviewId], references: [id], onDelete: Cascade)
+  reporter   User     @relation("UserReportedAbuse", fields: [reportedBy], references: [id],onDelete: Cascade)
+
+  @@map("abusive_comments")
+}
+
+model FavoriteBills {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String @db.ObjectId
+  billId  String @db.ObjectId
+
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bill    Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, billId]) // A user can't favorite the same bill twice
+  @@map("favorite_bills")
+}
+
+
+model AdminImages{
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  link       String?
+  details    String?
+  createdAt  DateTime @default(now())
+}
