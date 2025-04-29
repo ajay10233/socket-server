@@ -146,6 +146,38 @@ export const initializeSocket = (server) => {
     socket.on("sendMessage", async ({ senderId, senderType, receiverId, conversationId, content, timestamp }) => {
       if (!senderId || !receiverId || !content || !senderType) return;
 
+      // Identify the other party's type
+      const receiver = await prisma.user.findUnique({
+        where: { id: receiverId },
+        select: { role: true }, // assuming role is either 'USER' or 'INSTITUTION'
+      });
+
+      if (!receiver) return;
+
+      let expiresAt = null;
+      const now = new Date();
+
+      if (senderType === "USER" && receiver.role === "USER") {
+        // User to User chat – expires in 48 hours
+        expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+      } else {
+        // One side is institution
+        const institutionId = senderType === "INSTITUTION" ? senderId : receiverId;
+        const institution = await prisma.user.findUnique({
+          where: { id: institutionId },
+          select: { subscriptionPlan: true }, // plan: 'BASIC' | 'BUSINESS' | 'PREMIUM' | null
+        });
+
+        if (!institution || institution.subscriptionPlan?.name === 'BASIC' || institution.subscriptionPlan?.name === null) {
+          expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+        } else if (institution.subscriptionPlan?.name === 'BUSINESS') {
+          expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+        } else if (institution.subscriptionPlan?.name === 'PREMIUM') {
+          expiresAt = null; // Never expires
+        }
+      }
+
+      // Find or create conversation
       if (!conversationId) {
         const existingConversation = await prisma.conversation.findFirst({
           where: {
@@ -167,10 +199,19 @@ export const initializeSocket = (server) => {
         }
       }
 
+      // Create the message
       const newMessage = await prisma.message.create({
-        data: { senderId, senderType, receiverId, content, conversationId },
+        data: {
+          senderId,
+          senderType,
+          receiverId,
+          content,
+          conversationId,
+          expiresAt, // <- This is the new field
+        },
       });
 
+      // Update conversation metadata
       await prisma.conversation.update({
         where: { id: conversationId },
         data: {
@@ -181,13 +222,21 @@ export const initializeSocket = (server) => {
         },
       });
 
+      // Emit the message to all sockets of the receiver
       const sockets = userSockets.get(receiverId) || new Set();
       sockets.forEach((sid) => {
         io.to(sid).emit("receiveMessage", {
-          senderId, senderType, receiverId, content, conversationId, timestamp
+          senderId,
+          senderType,
+          receiverId,
+          content,
+          conversationId,
+          timestamp,
+          expiresAt,
         });
       });
     });
+
 
     socket.on("disconnect", () => {
       for (const [userId, sockets] of userSockets.entries()) {
