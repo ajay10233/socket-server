@@ -143,7 +143,7 @@ export const initializeSocket = (server) => {
       io.emit("presenceUpdate", { userId, status: "online" });
     });
 
-    socket.on("sendMessage", async ({ senderId, senderType, receiverId, conversationId, content, timestamp }) => {
+    socket.on("sendMessage", async ({ senderId, senderType, receiverId, conversationId, content, timestamp,accepted }) => {
       if (!senderId || !receiverId || !content || !senderType) return;
 
       // Identify the other party's type
@@ -193,7 +193,7 @@ export const initializeSocket = (server) => {
           conversationId = existingConversation.id;
         } else {
           const newConversation = await prisma.conversation.create({
-            data: { user1Id: senderId, user2Id: receiverId },
+            data: { user1Id: senderId, user2Id: receiverId,accepted },
           });
           conversationId = newConversation.id;
         }
