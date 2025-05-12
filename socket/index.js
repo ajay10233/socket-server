@@ -13,6 +13,20 @@ export const initializeSocket = (server) => {
   io.on("connection", (socket) => {
     console.log("🔵 User connected:", socket.id);
 
+    socket.on("join", (userId) => {
+      console.log("👥 User joined:", userId);
+      if (userId) {
+        if (!userSockets.has(userId)) {
+          userSockets.set(userId, new Set());
+        }
+        userSockets.get(userId).add(socket.id);
+        userStatus.set(userId, 'connected');
+        console.log(`User ${userId} stored with socket ID ${socket.id}`);
+      }
+    });
+
+
+
     socket.on("joinInstitutionRoom", async (institutionId) => {
       if (!institutionId) return console.error("❌ Missing institutionId");
       socket.join(`institution:${institutionId}`);
@@ -143,7 +157,7 @@ export const initializeSocket = (server) => {
       io.emit("presenceUpdate", { userId, status: "online" });
     });
 
-    socket.on("sendMessage", async ({ senderId, senderType, receiverId, conversationId, content, timestamp,accepted }) => {
+    socket.on("sendMessage", async ({ senderId, senderType, receiverId, conversationId, content, timestamp, accepted }) => {
       if (!senderId || !receiverId || !content || !senderType) return;
 
       // Identify the other party's type
@@ -193,7 +207,7 @@ export const initializeSocket = (server) => {
           conversationId = existingConversation.id;
         } else {
           const newConversation = await prisma.conversation.create({
-            data: { user1Id: senderId, user2Id: receiverId,accepted },
+            data: { user1Id: senderId, user2Id: receiverId, accepted },
           });
           conversationId = newConversation.id;
         }
@@ -237,6 +251,26 @@ export const initializeSocket = (server) => {
       });
     });
 
+    socket.on("sendNotification", ({ toUserId, message, title }) => {
+      if (!toUserId || !message || !title) {
+        return console.error("❌ Invalid notification payload");
+      }
+
+      const sockets = userSockets.get(toUserId);
+
+      if (!sockets || sockets.size === 0) {
+        console.log(`📢 Notification for user ${toUserId} failed – user is offline`);
+        return;
+      }
+
+      sockets.forEach((sid) => {
+        io.to(sid).emit("receiveNotification", {
+          title,
+          message,
+        });
+        console.log(`📨 Notification sent to ${toUserId} at socket ${sid}`);
+      });
+    });
 
     socket.on("disconnect", () => {
       for (const [userId, sockets] of userSockets.entries()) {
@@ -246,12 +280,13 @@ export const initializeSocket = (server) => {
             userSockets.delete(userId);
             userStatus.set(userId, "offline");
             io.emit("presenceUpdate", { userId, status: "offline" });
-            console.log(`⚫ User ${userId} is offline`);
+            console.log(`⚫ User ${userId} went offline`);
           }
           break;
         }
       }
     });
+
   });
 
   console.log("🚀 Socket.IO initialized");
