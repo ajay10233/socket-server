@@ -251,10 +251,25 @@ export const initializeSocket = (server) => {
       });
     });
 
-    socket.on("sendNotification", ({ toUserId, message }) => {
-      console.log("📢 Notification received:", { toUserId, message });
-      if (!toUserId || !message) {
+    socket.on("sendNotification", async({ toUserId, message,fromUserId }) => {
+      console.log("📢 Notification received:", { toUserId, message,fromUserId });
+      if (!toUserId || !message|| !fromUserId) {
         return console.error("❌ Invalid notification payload");
+      }
+
+      try {
+        const document = await prisma.notification.create({
+          data: {
+            receiverId:toUserId,
+            message:message,
+            senderId:fromUserId,
+            type:"message",
+          },
+        })
+
+        console.log("📢 Notification created:", document);
+      } catch (error) {
+        console.error("❌ Error creating notification:", error);
       }
 
       const sockets = userSockets.get(toUserId);
@@ -267,6 +282,7 @@ export const initializeSocket = (server) => {
       sockets.forEach((sid) => {
         io.to(sid).emit("receiveNotification", {
           message,
+          fromUserId,
         });
         console.log(`📨 Notification sent to ${toUserId} at socket ${sid}`);
       });
