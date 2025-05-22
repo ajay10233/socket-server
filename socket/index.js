@@ -251,8 +251,8 @@ export const initializeSocket = (server) => {
       });
     });
 
-    socket.on("sendNotification", async({ toUserId, message,fromUserId }) => {
-      console.log("📢 Notification received:", { toUserId, message,fromUserId });
+    socket.on("sendNotification", async({ toUserId, message,fromUserId,status }) => {
+      // console.log("📢 Notification received:", { toUserId, message,fromUserId,status });
       if (!toUserId || !message|| !fromUserId) {
         return console.error("❌ Invalid notification payload");
       }
@@ -283,6 +283,7 @@ export const initializeSocket = (server) => {
         io.to(sid).emit("receiveNotification", {
           message,
           fromUserId,
+          status,
         });
         console.log(`📨 Notification sent to ${toUserId} at socket ${sid}`);
       });
