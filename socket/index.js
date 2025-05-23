@@ -263,7 +263,7 @@ export const initializeSocket = (server) => {
             receiverId:toUserId,
             message:message,
             senderId:fromUserId,
-            type:status,
+            type:status?status:"message",
           },
         })
 
